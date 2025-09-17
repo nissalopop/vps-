@@ -1,0 +1,124 @@
+name: Continuous Persistent VPS
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+jobs:
+  vps-session:
+    runs-on: ubuntu-22.04
+    # Make this larger than the sleep below (sleep = 6h = 360 minutes).
+    timeout-minutes: 370
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set hostname to root@notfleepy
+        run: sudo hostnamectl set-hostname root@notfleepy
+
+      - name: Download VPS backup (if any)
+        uses: actions/download-artifact@v4
+        with:
+          name: vps-backup
+          path: ./backup
+        continue-on-error: true
+
+      - name: Inspect downloaded backup
+        run: |
+          set -euo pipefail
+          echo "=== ./backup listing ==="
+          ls -la ./backup || true
+          if [ -f ./backup/backup.zip ]; then
+            echo "=== backup.zip contents (list) ==="
+            unzip -l ./backup/backup.zip || true
+          else
+            echo "No ./backup/backup.zip found"
+          fi
+
+      - name: Install prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt update
+          sudo apt install -y tmate curl unzip sudo net-tools neofetch zip
+
+      - name: Restore backup files (if present)
+        run: |
+          set -euo pipefail
+          if [ -f ./backup/backup.zip ]; then
+            echo "Testing archive integrity..."
+            sudo unzip -t ./backup/backup.zip
+            echo "Extracting archive to / (using sudo)..."
+            sudo unzip -o ./backup/backup.zip -d /
+            echo "Restore done — listing /opt/vps-backup:"
+            sudo ls -la /opt/vps-backup || true
+          else
+            echo "No archive to restore; skipping."
+          fi
+
+      - name: Restore Tailscale state (if present after restore)
+        run: |
+          set -euo pipefail
+          if [ -f /opt/vps-backup/data/tailscaled.state ]; then
+            sudo mkdir -p /var/lib/tailscale
+            sudo cp /opt/vps-backup/data/tailscaled.state /var/lib/tailscale/tailscaled.state
+            sudo chmod 600 /var/lib/tailscale/tailscaled.state
+            echo "Tailscale state restored from backup."
+          else
+            echo "No /opt/vps-backup/data/tailscaled.state found."
+          fi
+
+      - name: Start Tailscale
+        run: |
+          set -euo pipefail
+          sudo tailscaled &
+          sleep 8
+          sudo tailscale up --authkey "${{ secrets.TAILSCALE_AUTHKEY }}" --hostname=root@notfleepy || echo "Tailscale already up or failed"
+
+      - name: Create user notfleepy with sudo
+        run: |
+          set -euo pipefail
+          if ! id -u notfleepy >/dev/null 2>&1; then
+            sudo useradd -m -s /bin/bash notfleepy
+            echo "notfleepy:root" | sudo chpasswd
+            sudo usermod -aG sudo notfleepy
+            echo "notfleepy ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/notfleepy
+          fi
+
+      - name: Start tmate session for SSH access
+        uses: mxschmitt/action-tmate@v3
+
+      - name: Show Tailscale IP and tmate info
+        run: |
+          echo "🔗 Tailscale IP:"
+          tailscale ip -4 || echo "Tailscale IP not found"
+          echo ""
+          echo "🔑 tmate SSH session:"
+          cat $HOME/.tmate.sock/ssh || true
+
+      - name: Sleep to keep VPS alive
+        run: |
+          echo "Sleeping 6 hours to keep tmate session open..."
+          sleep 21600  # 6 hours
+
+      - name: Backup VPS data and tailscale state
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /opt/vps-backup/data
+          if [ -f /var/lib/tailscale/tailscaled.state ]; then
+            sudo cp /var/lib/tailscale/tailscaled.state /opt/vps-backup/data/
+          fi
+          echo "Contents to be archived:"
+          sudo ls -la /opt/vps-backup || true
+          sudo zip -r backup.zip /opt/vps-backup
+          sudo chown $(id -u):$(id -g) backup.zip || true
+          echo "Created backup.zip:"
+          ls -lh backup.zip || true
+
+      - name: Upload VPS backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vps-backup
+          path: backup.zip
