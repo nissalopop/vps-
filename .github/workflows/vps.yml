@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           sudo apt update
           sudo apt install -y tmate curl unzip sudo net-tools neofetch zip
-          snap install tailscale
+          sudo snap install tailscale
  
       - name: Restore backup files (if present)
         run: |
