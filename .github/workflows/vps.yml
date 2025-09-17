@@ -1,4 +1,4 @@
-name: Continuous Persistent VPS
+name:  VPS
 
 on:
   schedule:
@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           sudo apt update
           sudo apt install -y tmate curl unzip sudo net-tools neofetch zip
-          sudo apt install tailscale -y
+          snap install tailscale -y
  
       - name: Restore backup files (if present)
         run: |
