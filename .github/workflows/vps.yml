@@ -15,8 +15,8 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set hostname to root@notfleepy
-        run: sudo hostnamectl set-hostname root@notfleepy
+      - name: Set hostname to notfleepy
+        run: sudo hostnamectl set-hostname notfleepy
 
       - name: Download VPS backup (if any)
         uses: actions/download-artifact@v4
@@ -42,7 +42,8 @@ jobs:
           set -euo pipefail
           sudo apt update
           sudo apt install -y tmate curl unzip sudo net-tools neofetch zip
-
+          sudo apt install tailscale -y
+ 
       - name: Restore backup files (if present)
         run: |
           set -euo pipefail
